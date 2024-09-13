@@ -1,0 +1,10 @@
+python-dotenv==1.0.1
+llama-index==0.11.7
+llama-index-graph-stores-neo4j==0.3.1
+graspologic==3.3.0
+numpy==1.24.4
+scipy==1.12.0
+python-dotenv==1.0.1
+future==1.0.0
+ratelimit==2.2.1
+tenacity

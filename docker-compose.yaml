@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: python-app
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./shared_config:/app/config
+    depends_on:
+      - neo4j
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENV_FILE=/app/config/.env.dev
+      - NEO4J_PASSWORD=neo4jadmin
+    tty: true
+    networks:
+      - app-network
+    ports:
+      - "5000:5000"  # Expose the Python app port
+
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j-apoc
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - ./data:/data
+      - ./plugins:/plugins
+    environment:
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4JLABS_PLUGINS=["apoc"]
+      - NEO4J_AUTH=neo4j/neo4jadmin
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

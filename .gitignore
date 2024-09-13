@@ -1,0 +1,22 @@
+**/venv/
+**/env/
+**/.env
+**/__pycache__
+
+**/.env
+**/.env.*
+# Explicitly include .env.dev.template
+!**/.env.dev.template
+
+**/google_credentials.json
+**/id_rsa_gcp.pub
+
+plugins
+
+logs
+
+data
+# Explicitely include files with intermediary processing results (eg: including embeddings)
+!data/*.json
+
+.aider*
