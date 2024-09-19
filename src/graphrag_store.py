@@ -40,7 +40,7 @@ class GraphRAGStore(Neo4jPropertyGraphStore):
         ]
         response = OpenAI().chat(messages)
         clean_response = re.sub(r"^assistant:\s*", "", str(response)).strip()
-        logger.info(f"Generated community summary: {clean_response[:100]}...")  # Log first 100 chars
+        #logger.info(f"Generated community summary: {clean_response[:100]}...")  # Log first 100 chars
         return clean_response
 
     def build_communities(self):
@@ -57,6 +57,7 @@ class GraphRAGStore(Neo4jPropertyGraphStore):
         )
         self._summarize_communities(community_info)
         logger.info(f"Community building completed. {len(community_info)} communities found.")
+        logger.info(f"entity_info: {self.entity_info}")
 
     def _create_nx_graph(self):
         logger.info("Creating NetworkX graph from triplets")
@@ -93,7 +94,36 @@ class GraphRAGStore(Neo4jPropertyGraphStore):
 
         entity_info = {k: list(v) for k, v in entity_info.items()}
         logger.info(f"Collected information for {len(community_info)} communities")
+        logger.info(f"Community {cluster_id}\n Data: {community_info[cluster_id]}")
         return dict(entity_info), dict(community_info)
+
+
+    def _collect_community_info(self, nx_graph, clusters):
+        """
+        Collect information for each node based on their community,
+        allowing entities to belong to multiple clusters.
+        """
+        entity_info = defaultdict(set)
+        community_info = defaultdict(list)
+
+        for item in clusters:
+            node = item.node
+            cluster_id = item.cluster
+
+            # Update entity_info
+            entity_info[node].add(cluster_id)
+
+            for neighbor in nx_graph.neighbors(node):
+                edge_data = nx_graph.get_edge_data(node, neighbor)
+                if edge_data:
+                    detail = f"{node} -> {neighbor} -> {edge_data['relationship']} -> {edge_data['description']}"
+                    community_info[cluster_id].append(detail)
+
+        # Convert sets to lists for easier serialization if needed
+        entity_info = {k: list(v) for k, v in entity_info.items()}
+
+        return dict(entity_info), dict(community_info)
+
 
     def _summarize_communities(self, community_info):
         logger.info("Summarizing communities")
@@ -101,6 +131,7 @@ class GraphRAGStore(Neo4jPropertyGraphStore):
             details_text = "\n".join(details) + "."
             self.community_summary[community_id] = self.generate_community_summary(details_text)
         logger.info(f"Summarized {len(self.community_summary)} communities")
+        logger.info(f"Summary {community_id}:\n{self.community_summary[community_id]}")
 
     def get_community_summaries(self):
         if not self.community_summary:
@@ -130,6 +161,10 @@ class GraphRAGStore(Neo4jPropertyGraphStore):
                    labels(n) AS labels, n.name AS name
         """
         documents = []
+        
+        chunk_nodes = 0
+        entity_nodes = 0
+        relationship_nodes = 0
         with self._driver.session() as session:
             result = session.run(query)
             for record in result:
@@ -142,19 +177,27 @@ class GraphRAGStore(Neo4jPropertyGraphStore):
                 if "Chunk" in labels and text:
                     # This is a document chunk
                     doc = Document(text=text, id_=node_id, metadata=metadata)
+                    chunk_nodes+=1
                     documents.append(doc)
                 elif "__Entity__" in labels and name:
                     # This is an entity node
                     node = TextNode(text=name, id_=node_id, metadata=metadata)
                     documents.append(node)
+                    entity_nodes+=1
                 elif "__Relation__" in labels:
                     # This is a relationship node
                     # You might want to handle this differently depending on your needs
+                    relationship_nodes+=1
                     pass
                 else:
                     logger.warning(f"Skipping node with unexpected structure: id={node_id}, labels={labels}")
 
-        logger.info(f"Fetched {len(documents)} valid nodes from the database")
+        logger.info(f"""
+Fetched {len(documents)} valid nodes from the database:
+chunk_nodes: {chunk_nodes}
+entity_nodes: {entity_nodes}
+relationship_nodes: {relationship_nodes}
+""")
         return documents
 
     def add_node(self, node):

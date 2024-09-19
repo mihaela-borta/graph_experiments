@@ -7,4 +7,4 @@ scipy==1.12.0
 python-dotenv==1.0.1
 future==1.0.0
 ratelimit==2.2.1
-tenacity
+tenacity==8.5.0

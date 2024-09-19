@@ -10,7 +10,6 @@ import argparse
 from llama_index.core import Document, PropertyGraphIndex
 from llama_index.llms.openai import OpenAI
 from llama_index.core.node_parser import SentenceSplitter
-# from llama_index.core.token_counter import TokenCounter
 
 from graphrag_extractor import GraphRAGExtractor, parse_fn
 from graphrag_store import GraphRAGStore
@@ -174,8 +173,6 @@ def create_query_engine(index: PropertyGraphIndex, llm: Any) -> GraphRAGQueryEng
         similarity_top_k=10,
     )
 
-def get_existing_nodes(graph_store: GraphRAGStore) -> List[Document]:
-    return graph_store.get_all_nodes()
 
 async def main(use_local_responses: bool):
     # Load environment variables
@@ -206,24 +203,24 @@ async def main(use_local_responses: bool):
     node_count = graph_store.get_node_count()
     if node_count > 0:
         logger.info(f"Graph already exists with {node_count} nodes.")
-        # Fetch existing nodes from the graph store
-        existing_nodes = graph_store.get_all_nodes()
-        logger.info(f"Fetched {len(existing_nodes)} existing nodes from the graph store.")
-        # Create index with existing nodes and graph store
-        index = await create_index_async(existing_nodes, graph_store)
-        logger.info(f"Index initialized with existing graph store and {len(existing_nodes)} nodes.")
+
+        index = PropertyGraphIndex.from_existing(
+            property_graph_store=graph_store,
+            embed_kg_nodes=True,
+        )
     else:
         # Build index with rate limiting
         index = await build_index_with_rate_limit(nodes, graph_store, llm, use_local_responses)
         logger.info(f"Index built successfully with {len(nodes)} nodes.")
-        
-        # Build communities
-        if graph_store.get_rel_count() > 0:
-            await build_communities_async(index.property_graph_store)
-            logger.info("Communities built successfully.")
-        else:
-            logger.warning("No relationships found in the graph. Skipping community building.")
 
+    """  
+    # Build communities
+    if graph_store.get_rel_count() > 0:
+        await build_communities_async(index.property_graph_store)
+        logger.info("Communities built successfully.")
+    else:
+        logger.warning("No relationships found in the graph. Skipping community building.")
+    """
     # Verify if the graph was built
     node_count = graph_store.get_node_count()
     relation_count = graph_store.get_rel_count()
@@ -234,6 +231,9 @@ async def main(use_local_responses: bool):
     else:
         logger.info("Graph appears to have been built successfully.")
     
+    logger.info(f"""DEBUG: {index.property_graph_store.get_triplets()[10]}""")
+
+
     # Create query engine
     query_engine = create_query_engine(index, llm)
     logger.info("Query engine created successfully.")
@@ -245,21 +245,13 @@ async def main(use_local_responses: bool):
     ]
     
     for i, query in enumerate(queries, 1):
-        logger.info(f"\nProcessing query {i}: '{query}'")
-        response = await query_engine.aquery(query)  # Use aquery instead of query
-        logger.info(f"Query {i}: {query}")
-        logger.info(f"Response {i}: {response}\n")
-    
+        if i==1:
+            logger.info(f"\nProcessing query {i}: '{query}'")
+            response = await query_engine.custom_query(query)  # Use aquery instead of query
+            logger.info(f"Query {i}: {query}")
+            logger.info(f"Response {i}: {response}\n")
+        
     logger.info("All queries processed successfully.")
-
-async def create_index_async(nodes, graph_store):
-    return await asyncio.get_event_loop().run_in_executor(
-        None,
-        lambda: PropertyGraphIndex(
-            nodes=nodes,
-            property_graph_store=graph_store
-        )
-    )
 
 async def build_communities_async(property_graph_store):
     await asyncio.get_event_loop().run_in_executor(

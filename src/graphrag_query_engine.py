@@ -5,6 +5,12 @@ from graphrag_store import GraphRAGStore  # Add this import
 import re
 import asyncio
 from typing import List
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 
 class GraphRAGQueryEngine(CustomQueryEngine):
     graph_store: GraphRAGStore
@@ -12,14 +18,23 @@ class GraphRAGQueryEngine(CustomQueryEngine):
     llm: LLM
     similarity_top_k: int = 20
 
-    def custom_query(self, query_str: str) -> str:
-        # This method is required by CustomQueryEngine
-        return asyncio.run(self.aquery(query_str))
-
-    async def aquery(self, query_str: str) -> str:
+    async def custom_query(self, query_str: str) -> str:
         entities = await self.get_entities(query_str, self.similarity_top_k)
+        logger.info(f"""
+similarity_top_k: {self.similarity_top_k}
+query_str: {query_str}
+entities: {entities}
+        """)
+
+        import sys
+        sys.exit(1)
+
         community_ids = self.retrieve_entity_communities(self.graph_store.entity_info, entities)
         community_summaries = self.graph_store.get_community_summaries()
+
+        logger.info(f"""
+community_ids: {community_ids}
+        """)
         
         community_answers = await asyncio.gather(*[
             self.generate_answer_from_summary(community_summary, query_str)
@@ -27,19 +42,48 @@ class GraphRAGQueryEngine(CustomQueryEngine):
             if id in community_ids
         ])
 
+        logger.info(f"""
+community_answers: {community_answers}
+        """)
+
         final_answer = await self.aggregate_answers(community_answers)
+        
+        logger.info(f"""
+final_answer: {final_answer}
+        """)
         return final_answer
 
     async def get_entities(self, query_str: str, similarity_top_k: int) -> List[str]:
         nodes_retrieved = await self.index.as_retriever(
             similarity_top_k=similarity_top_k
         ).aretrieve(query_str)
-
+        
         entities = set()
         pattern = r"(\w+(?:\s+\w+)*)\s*\({[^}]*}\)\s*->\s*([^(]+?)\s*\({[^}]*}\)\s*->\s*(\w+(?:\s+\w+)*)"
 
-        for node in nodes_retrieved:
+        from llama_index.core.schema import TextNode, NodeRelationship, RelatedNodeInfo, NodeWithScore
+
+
+        for node in nodes_retrieved[:1]:
+            logger.info(f"node: {node}")
+            logger.info(f"node repr: {repr(node)}")
+            logger.info(f"node dir: {dir(node)}")
+            print(f"node: {node}")
+            if isinstance(node, NodeWithScore):
+                print(f"node id: {node.id_}")
+                print(f"node dict: {node.to_dict()}")
+                node_dict = node.to_dict()
+                #relationships = node_dict['node']['relationship']
+                print(f"node relationships: {node_dict['node']['relationships']}, {type(node_dict['node'])}")
+                """
+                if 'triplet_source_id' in node.properties.keys():
+                    print(f"triplet_source_id: {node.properties['triplet_source_id']}")
+                    triplets = self.index.index.property_graph_store.get_triplets(entity_names=[node.name])
+                    print(f"triplets: {triplets}")
+                """
+
             matches = re.findall(pattern, node.text, re.DOTALL)
+            print(f"matches: {matches}")
             for match in matches:
                 subject, obj = match[0], match[2]
                 entities.add(subject)
@@ -73,6 +117,12 @@ class GraphRAGQueryEngine(CustomQueryEngine):
             ChatMessage(role="system", content=prompt),
             ChatMessage(role="user", content=f"Intermediate answers: {community_answers}"),
         ]
+
+        logger.info(f"""
+prompt: {prompt}
+messages: {messages}
+        """)
+
         final_response = await self.llm.achat(messages)
         cleaned_final_response = re.sub(r"^assistant:\s*", "", str(final_response)).strip()
         return cleaned_final_response
